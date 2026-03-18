@@ -6,6 +6,10 @@
 #
 # Steam launch option:
 #   ~/.local/bin/ntsc-steam.sh %command%
+#   ~/.local/bin/ntsc-steam.sh --ntsc-strength 0.5 %command%
+#
+# --ntsc-strength N  Scale all effect intensities by N (default: 1.0)
+#                    0.5 = half strength, 2.0 = double, 0 = disabled
 #
 # Requires: gamescope (sudo pacman -S gamescope)
 # Shader:   ~/.local/share/gamescope/reshade/Shaders/ntsc  (no extension)
@@ -13,9 +17,22 @@
 
 set -euo pipefail
 
-SHADER_INSTALL="${XDG_DATA_HOME:-$HOME/.local/share}/gamescope/reshade/Shaders/ntsc"
+SHADER_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/gamescope/reshade/Shaders"
+SHADER_INSTALL="$SHADER_DIR/ntsc"
 AUDIO_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ntsc-steam/vhs-audio.conf"
 VHS_AUDIO_PID=""
+SHADER_SCALED=""
+NTSC_STRENGTH=1.0
+
+# ── Parse --ntsc-strength ──────────────────────────────────────────────────────
+_newargs=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --ntsc-strength) NTSC_STRENGTH="$2"; shift 2 ;;
+        *) _newargs+=("$1"); shift ;;
+    esac
+done
+set -- ${_newargs[@]+"${_newargs[@]}"}
 
 # ── Cleanup on exit ───────────────────────────────────────────────────────────
 cleanup() {
@@ -24,6 +41,7 @@ cleanup() {
         kill "$VHS_AUDIO_PID" 2>/dev/null || true
         echo "[ntsc-steam] VHS audio filter stopped."
     fi
+    [[ -n "$SHADER_SCALED" ]] && rm -f "$SHADER_SCALED" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -39,6 +57,29 @@ fi
 if [[ ! -f "$SHADER_INSTALL" ]]; then
     echo "[ntsc-steam] ERROR: NTSC shader not found at: $SHADER_INSTALL" >&2
     exec "$@"
+fi
+
+# ── Scale shader if --ntsc-strength was given ─────────────────────────────────
+# Generates a temp shader with all default uniform values multiplied by the
+# strength factor, then passes that file to gamescope instead of the base one.
+
+SHADER_EFFECT="ntsc"
+if [[ "$NTSC_STRENGTH" != "1.0" && "$NTSC_STRENGTH" != "1" ]]; then
+    SHADER_SCALED="$SHADER_DIR/ntsc_scaled"
+    python3 - "$NTSC_STRENGTH" "$SHADER_INSTALL" << 'PYEOF' > "$SHADER_SCALED"
+import re, sys
+strength = float(sys.argv[1])
+with open(sys.argv[2]) as f:
+    src = f.read()
+result = re.sub(
+    r'(>\s*=\s*)(\d+\.?\d*)(\s*;)',
+    lambda m: m.group(1) + f'{float(m.group(2)) * strength:.4f}' + m.group(3),
+    src
+)
+print(result, end='')
+PYEOF
+    SHADER_EFFECT="ntsc_scaled"
+    echo "[ntsc-steam] NTSC strength: ${NTSC_STRENGTH}x (scaled shader written)"
 fi
 
 # ── VHS audio filter-chain ────────────────────────────────────────────────────
@@ -85,7 +126,7 @@ fi
 [[ "${W:-0}" -lt 1 ]] && W=1920
 [[ "${H:-0}" -lt 1 ]] && H=1080
 
-echo "[ntsc-steam] Running at ${W}x${H} with shader: $SHADER_INSTALL"
+echo "[ntsc-steam] Running at ${W}x${H} with shader: $SHADER_EFFECT"
 
 # ── Disable Steam overlay Vulkan layer ────────────────────────────────────────
 # The layer JSON's actual disable key is DISABLE_VK_LAYER_VALVE_steam_overlay_1.
@@ -100,11 +141,12 @@ export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1
 gamescope \
     -W "$W" -H "$H" \
     -w "$W" -h "$H" \
+    -f \
     -r 0 \
-    --reshade-effect ntsc \
+    --reshade-effect "$SHADER_EFFECT" \
     --reshade-technique-idx 0 \
     -- \
     env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 \
     "$@"
 
-# trap EXIT fires here → cleanup() kills the audio filter
+# trap EXIT fires here → cleanup() kills the audio filter and removes temp shader
