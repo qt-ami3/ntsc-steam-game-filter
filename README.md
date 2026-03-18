@@ -61,9 +61,40 @@ Key environment variables set by the script:
 
 ---
 
-## Effects
+## Audio effect
 
-| Parameter | Default | Description |
+The script automatically starts a PipeWire virtual sink called **"VHS Audio"** that routes the game's audio through a tape EQ before it reaches your speakers:
+
+| Stage | Setting | Effect |
+|---|---|---|
+| HP @ 40 Hz | Q=0.7 | Remove sub-bass rumble |
+| Peaking +4 dB @ 90 Hz | Q=1.1 | Tape head bass resonance / warmth |
+| Peaking +1.5 dB @ 350 Hz | Q=1.4 | Low-mid tape congestion |
+| Peaking -3 dB @ 3 kHz | Q=0.85 | Upper-mid presence dip (loss of clarity) |
+| High shelf -9 dB @ 5 kHz | Q=0.8 | High-frequency rolloff |
+| LP @ 8 kHz | Q=1.1 | Hard VHS LP-mode bandwidth ceiling |
+
+The audio filter starts when the game launches and is automatically stopped when you exit.
+
+To disable the audio effect only, delete or move `~/.config/ntsc-steam/vhs-audio.conf`.
+
+### Optional: wow & flutter (requires LADSPA)
+
+For pitch instability simulation, install the TAP plugins and add this node to `vhs-audio.conf` inside `filter.graph.nodes`:
+
+```bash
+sudo pacman -S ladspa-tap-plugins
+```
+
+```
+{ type = ladspa  name = flutter  plugin = tap_chorusflanger  label = tap_chorusflanger
+  control = { "0" = 0   "1" = 2.5   "2" = 0.15   "3" = 0.0   "4" = 1   "5" = 0.5 } }
+```
+Then add `{ output = "lp:Out" input = "flutter:In" }` as the final link.
+
+---
+
+## Video effects
 |---|---|---|
 | `ChromaBleed` | 0.80 | Horizontal color smear (composite bandwidth limiting) |
 | `ChromaShiftPixels` | 2.0 | Luma/chroma misalignment in pixels |
