@@ -20,6 +20,7 @@ VHS_AUDIO_PID=""
 # ── Cleanup on exit ───────────────────────────────────────────────────────────
 cleanup() {
     if [[ -n "$VHS_AUDIO_PID" ]]; then
+        [[ -n "${PREV_DEFAULT_SINK:-}" ]] && pactl set-default-sink "$PREV_DEFAULT_SINK" 2>/dev/null || true
         kill "$VHS_AUDIO_PID" 2>/dev/null || true
         echo "[ntsc-steam] VHS audio filter stopped."
     fi
@@ -50,6 +51,9 @@ if [[ -f "$AUDIO_CONF" ]]; then
     VHS_AUDIO_PID=$!
     sleep 0.4   # let the virtual sink register in PipeWire
     export PULSE_SINK=effect_input.vhs_audio
+    # Also set as default sink — many games ignore PULSE_SINK and use the default
+    PREV_DEFAULT_SINK="$(pactl get-default-sink 2>/dev/null || true)"
+    pactl set-default-sink effect_input.vhs_audio 2>/dev/null || true
     echo "[ntsc-steam] VHS audio filter started (PID $VHS_AUDIO_PID)"
 else
     echo "[ntsc-steam] WARN: audio config not found at $AUDIO_CONF — skipping audio effect" >&2
