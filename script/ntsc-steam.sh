@@ -10,6 +10,7 @@
 #
 # --ntsc-strength N  Scale all effect intensities by N (default: 1.0)
 #                    0.5 = half strength, 2.0 = double, 0 = disabled
+# --no-fullscreen    Don't force gamescope fullscreen; let the app decide
 #
 # Requires: gamescope (sudo pacman -S gamescope)
 # Shader:   ~/.local/share/gamescope/reshade/Shaders/ntsc  (no extension)
@@ -23,12 +24,14 @@ AUDIO_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ntsc-steam/vhs-audio.conf"
 VHS_AUDIO_PID=""
 SHADER_SCALED=""
 NTSC_STRENGTH=1.0
+FORCE_FULLSCREEN=1
 
-# ── Parse --ntsc-strength ──────────────────────────────────────────────────────
+# ── Parse --ntsc-strength / --no-fullscreen ────────────────────────────────────
 _newargs=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ntsc-strength) NTSC_STRENGTH="$2"; shift 2 ;;
+        --no-fullscreen) FORCE_FULLSCREEN=0; shift ;;
         *) _newargs+=("$1"); shift ;;
     esac
 done
@@ -41,6 +44,7 @@ cleanup() {
         kill "$VHS_AUDIO_PID" 2>/dev/null || true
         echo "[ntsc-steam] VHS audio filter stopped."
     fi
+    [[ -n "${_HYPR_FOCUS_PID:-}" ]] && kill "$_HYPR_FOCUS_PID" 2>/dev/null || true
     [[ -n "$SHADER_SCALED" ]] && rm -f "$SHADER_SCALED" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -128,25 +132,47 @@ fi
 
 echo "[ntsc-steam] Running at ${W}x${H} with shader: $SHADER_EFFECT"
 
-# ── Disable Steam overlay Vulkan layer ────────────────────────────────────────
-# The layer JSON's actual disable key is DISABLE_VK_LAYER_VALVE_steam_overlay_1.
-# Without this it intercepts vkCreateSwapchainKHR before gamescope's WSI layer.
-export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1
 
 # ── Launch via gamescope ──────────────────────────────────────────────────────
 # The gamescope WSI layer is an "XWayland Bypass" — it only hooks X11/XWayland
 # surfaces. Strip WAYLAND_DISPLAY from the game's env so SDL falls back to
 # DISPLAY=:N (gamescope's Xwayland), which the WSI layer correctly intercepts.
 
+_gs_fullscreen=(); [[ "$FORCE_FULLSCREEN" -eq 1 ]] && _gs_fullscreen=(-f)
+
+# ── Hyprland: force focus after gamescope window appears ──────────────────────
+# Hyprland doesn't grant gamescope pointer/input focus on open, causing mouse
+# and controller events to be dropped until a workspace switch re-focuses it.
+# Poll until the gamescope client appears, then dispatch focuswindow.
+_HYPR_FOCUS_PID=""
+if command -v hyprctl &>/dev/null; then
+    (
+        for _ in $(seq 1 20); do
+            sleep 0.3
+            hyprctl clients -j 2>/dev/null \
+            | python3 -c "
+import json, sys
+clients = json.load(sys.stdin)
+sys.exit(0 if any('gamescope' in c.get('class','').lower() for c in clients) else 1)
+" 2>/dev/null && {
+                hyprctl dispatch focuswindow class:gamescope 2>/dev/null
+                break
+            }
+        done
+    ) &
+    _HYPR_FOCUS_PID=$!
+fi
+
 gamescope \
     -W "$W" -H "$H" \
     -w "$W" -h "$H" \
-    -f \
+    ${_gs_fullscreen[@]+"${_gs_fullscreen[@]}"} \
+    --grab \
     -r 0 \
     --reshade-effect "$SHADER_EFFECT" \
     --reshade-technique-idx 0 \
     -- \
-    env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 \
+    env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=x11 SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1 \
     "$@"
 
 # trap EXIT fires here → cleanup() kills the audio filter and removes temp shader

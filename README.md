@@ -45,6 +45,17 @@ In Steam → right-click a game → **Properties** → **Launch Options**:
 ~/.local/bin/ntsc-steam.sh %command%
 ```
 
+Optional flags can be prepended:
+
+```
+~/.local/bin/ntsc-steam.sh --ntsc-strength 0.5 --no-fullscreen %command%
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--ntsc-strength N` | `1.0` | Scale all effect intensities (0 = off, 0.5 = half, 2.0 = double) |
+| `--no-fullscreen` | *(fullscreen)* | Run gamescope as a window instead of forcing fullscreen |
+
 ---
 
 ## How it works
@@ -55,9 +66,9 @@ Key environment variables set by the script:
 
 | Variable | Value | Reason |
 |---|---|---|
-| `DISABLE_VK_LAYER_VALVE_steam_overlay_1` | `1` | Prevents Steam overlay Vulkan layer from intercepting `vkCreateSwapchainKHR` before gamescope's WSI layer |
 | `SDL_VIDEODRIVER` | `x11` | Forces SDL2 games to use gamescope's Xwayland instead of connecting directly to the host Wayland compositor |
 | `WAYLAND_DISPLAY` | *(unset)* | Prevents non-SDL games from connecting to the host compositor and bypassing gamescope's swapchain hook |
+| `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS` | `1` | Keeps joystick events flowing when the gamescope window loses focus |
 
 ---
 
@@ -103,6 +114,13 @@ Then add `{ output = "lp:Out" input = "flutter:In" }` as the final link.
 | `ScanlineStrength` | 0.25 | Interlaced scanline gap darkness |
 | `VHSWobble` | 0.40 | Horizontal tape warping |
 | `HeadSwitching` | 0.60 | Glitch band at bottom of frame |
+
+---
+
+## Known limitations
+
+**Steam Input (controllers via Steam's controller remapping) does not work.**
+Games running inside gamescope's nested Xwayland don't receive Steam Input events. Raw evdev controllers (recognised directly by the game or SDL without Steam's remapping layer) are unaffected. If you rely on Steam Input for button remapping or gyro, you'll need to run the game without ntsc-steam.
 
 ---
 
