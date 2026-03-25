@@ -168,6 +168,7 @@ gamescope \
     -w "$W" -h "$H" \
     ${_gs_fullscreen[@]+"${_gs_fullscreen[@]}"} \
     --grab \
+    --hide-cursor-delay 0 \
     -r 0 \
     --reshade-effect "$SHADER_EFFECT" \
     --reshade-technique-idx 0 \
